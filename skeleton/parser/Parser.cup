@@ -1,0 +1,197 @@
+package parser;
+
+import java.util.*;
+import java.io.*;
+import java_cup.runtime.Symbol;
+import java_cup.runtime.ComplexSymbolFactory.ComplexSymbol;
+import java_cup.runtime.ComplexSymbolFactory;
+
+import ast.*;
+import interpreter.Interpreter;
+
+parser code {: 
+  Lexer lexer;
+
+  public Parser(Lexer lex, ComplexSymbolFactory sf) {
+    super(lex, sf);
+    lexer = lex;
+  }
+
+  public void report_fatal_error(String message, Object info) {
+    Interpreter.fatalError(message + " (" + info + ")", Interpreter.EXIT_PARSING_ERROR);
+  }
+
+  ast.Location loc(int line, int column) {
+    return new ast.Location(line, column);
+  }
+
+:};
+
+
+terminal PLUS, MINUS, LPAREN, RPAREN, MULTIPLY,  RETURN, SEMICOLON, COMMA, Q,REF, PRINT, DOT, MUT,NIL;
+terminal LE, GE, EQ, NE, LT, GT, AND, OR, NOT;
+terminal Long    INTCONST;
+terminal String   IDENT;
+terminal IF, ELSE, WHILE, EQUAL, INT, LBRACE, RBRACE;
+
+
+non terminal Program program;
+non terminal List<FuncDef> funcDefList;
+non terminal FuncDef funcDef;
+non terminal List<VarDecl>    formalDeclList;
+non terminal List<VarDecl>    neFormalDeclList;
+non terminal VarDecl varDecl;
+non terminal VarDecl.TYPE type;
+non terminal List<Stmt>      stmtList;
+non terminal Stmt stmt;
+non terminal Cond cond;
+non terminal Expr            expr;
+non terminal BinaryExpr      binaryExpr;
+non terminal FuncCallExpr    funcCallExpr;
+non terminal List<Expr>             exprList;
+non terminal List<Expr>             neExprList;
+
+
+precedence left PRINT;
+precedence left IF;
+precedence left ELSE;
+precedence left AND, OR;
+precedence left NOT;
+precedence left LE, GE, EQ, NE, LT, GT;
+precedence left DOT;
+precedence left PLUS, MINUS;
+precedence left MULTIPLY;
+
+
+
+start with program;
+
+program ::= funcDefList:fdl
+            {: RESULT = new Program(fdl,loc(fdlleft,fdlright)); :}
+         ;
+
+funcDefList ::= funcDef:fd funcDefList:fdl
+               {: fdl.add(0, fd); RESULT = fdl; :}
+             /* empty */
+             |  {: RESULT = new ArrayList<FuncDef>(); :}
+             ;
+
+funcDef ::= varDecl:v LPAREN formalDeclList:f RPAREN LBRACE stmtList:s RBRACE
+            {: RESULT = new FuncDef(v, f, s, loc(vleft, vright)); :}
+         ;
+
+formalDeclList ::= neFormalDeclList:nfdl
+                   {: RESULT = nfdl; :}
+                |  /* empty */
+                  {: RESULT = new ArrayList<VarDecl>(); :}
+                ;
+
+neFormalDeclList ::= varDecl:v COMMA neFormalDeclList:nfdl
+                     {: nfdl.add(0, v); RESULT = nfdl; :}
+                  | varDecl:v
+                     {: List<VarDecl> nfd = new ArrayList<VarDecl>(); nfd.add(0, v); RESULT = nfd; :}
+                  ;
+
+varDecl ::= type:t IDENT:i
+            {: RESULT = new VarDecl(t, i, loc(tleft, tright)); :}
+         ;
+
+type ::=  INT
+         {: RESULT = VarDecl.TYPE.INT; :}
+      | Q
+         {: RESULT = VarDecl.TYPE.Q; :}
+      | REF
+         {: RESULT = VarDecl.TYPE.REF; :}
+      ;
+
+stmtList ::= stmt:st stmtList:sl
+            {: sl.add(0, st); RESULT = sl; :}
+         |  {: RESULT = new ArrayList<Stmt>(); :}
+         ;
+             
+stmt ::= varDecl:v EQUAL expr:e SEMICOLON
+          {: RESULT = new DeclStmt(v, e, loc(vleft, vright)); :}
+       |  IDENT:i EQUAL expr:e SEMICOLON
+          {: RESULT = new AssignStmt(i, e, loc(ileft, iright)); :}
+       |  IF LPAREN cond:c RPAREN stmt:s 
+          {: RESULT = new IfStmt(c, s, loc(cleft, cright)); :}
+       | IF LPAREN cond:c RPAREN stmt:s1 ELSE stmt:s2
+         {: RESULT = new IfElseStmt(c, s1, s2, loc(cleft, cright)); :}
+       | WHILE LPAREN cond:c RPAREN stmt:s
+         {: RESULT = new WhileStmt(c, s, loc(cleft, cright)); :}
+       | RETURN expr:e SEMICOLON
+         {: RESULT = new ReturnStmt(e, loc(eleft, eright)); :}
+       |  LBRACE stmtList:sl RBRACE
+          {: RESULT = new BlockStmt(sl, loc(slleft, slright)); :}
+       |  PRINT expr:e SEMICOLON
+         {: RESULT = new PrintStmt(e, loc(eleft, eright)); :}
+       |  funcCallExpr:fce SEMICOLON
+         {: RESULT = new FunctionCallStmt(fce, loc(fceleft, fceright)); :}
+       ;
+      
+cond ::= expr:e1 LE expr:e2
+         {: RESULT = new BinaryCond(e1, BinaryExpr.LE, e2, loc(e1left,e1right)); :}
+      |  expr:e1 GE expr:e2
+         {: RESULT = new BinaryCond(e1, BinaryExpr.GE, e2, loc(e1left,e1right)); :}
+      |  expr:e1 EQ expr:e2
+         {: RESULT = new BinaryCond(e1, BinaryExpr.EQ, e2, loc(e1left,e1right)); :}
+      |  expr:e1 NE expr:e2
+         {: RESULT = new BinaryCond(e1, BinaryExpr.NE, e2, loc(e1left,e1right)); :}
+      |  expr:e1 LT expr:e2
+         {: RESULT = new BinaryCond(e1, BinaryExpr.LT, e2, loc(e1left,e1right)); :}
+      |  expr:e1 GT expr:e2
+         {: RESULT = new BinaryCond(e1, BinaryExpr.GT, e2, loc(e1left,e1right)); :}
+      |  cond:c1 AND cond:c2
+         {: RESULT = new BinaryCond(c1, BinaryExpr.AND, c2, loc(c1left, c1right)); :}
+        
+      |  cond:c1 OR cond:c2
+         {: RESULT = new BinaryCond(c1, BinaryExpr.OR, c2, loc(c1left, c1right)); :}
+      |  NOT cond:c
+         {: RESULT = new BinaryCond(c, BinaryExpr.NOT, loc(cleft, cright)); :}
+          %prec NOT
+      |  LPAREN cond:c RPAREN
+         {: RESULT = c; :}
+      ;
+
+
+expr ::=  NIL:n
+         {: RESULT = new ConstExpr(loc(nleft, nright)); :}
+      |  INTCONST:c
+         {: RESULT = new ConstExpr(c, loc(cleft, cright)); :}
+      |  IDENT:c
+         {: RESULT = new IdentExpr(c, loc(cleft, cright)); :}
+      |  binaryExpr:e
+         {: RESULT = e; :}
+      | MINUS expr:e
+         {: RESULT = new UnaryMinusExpr(e, loc(eleft, eright)); :}
+
+      |  LPAREN expr:e RPAREN
+         {: RESULT = e; :}
+      |  funcCallExpr:fce
+         {: RESULT = fce; :}
+      ;
+   
+
+funcCallExpr ::= IDENT:i LPAREN exprList:el RPAREN
+               {: RESULT = new FuncCallExpr(i, el, loc(ileft, iright)); :}
+            ;
+
+exprList ::= neExprList:nel
+                  {: RESULT = nel; :}
+               |  {: RESULT = new ArrayList<Expr>(); :}
+               ;
+
+neExprList ::= expr:e COMMA neExprList:nel
+                  {:  nel.add(0, e); RESULT = nel; :}
+               | expr:e
+                  {: List<Expr> nel = new ArrayList<Expr>(); nel.add(0, e); RESULT = nel; :}
+               ;
+
+binaryExpr ::= expr:e1 PLUS expr:e2
+               {: RESULT = new BinaryExpr(e1, BinaryExpr.PLUS, e2, loc(e1left, e1right)); :}
+            |  expr:e1 MINUS expr:e2
+               {: RESULT = new BinaryExpr(e1, BinaryExpr.MINUS, e2, loc(e1left, e1right)); :}
+            |  expr:e1 MULTIPLY expr:e2
+               {: RESULT = new BinaryExpr(e1, BinaryExpr.MULTIPLY, e2, loc(e1left, e1right)); :}
+            ;
+

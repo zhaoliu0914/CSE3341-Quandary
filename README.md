@@ -1,2 +1,3 @@
-# Quandary-Public
-CSE 3341 Quandary-Public
+### Quandary-Public
+
+See quandary.pdf for complete documentation.
